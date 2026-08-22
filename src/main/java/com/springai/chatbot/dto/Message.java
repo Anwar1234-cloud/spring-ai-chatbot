@@ -5,6 +5,6 @@ import lombok.*;
 @Getter @Setter
 @NoArgsConstructor @AllArgsConstructor
 public class Message {
-    private String role; // user, assistant
+    private String role; 
     private String content;
 }

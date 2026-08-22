@@ -2,6 +2,17 @@ spring:
   application:
     name: chatbot
 
+  datasource:
+    url: jdbc:postgresql://localhost:5432/chatbot_db
+    username: postgres
+    password: 12345
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+
   ai:
     ollama:
       base-url: http://localhost:11434

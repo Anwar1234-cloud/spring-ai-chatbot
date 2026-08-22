@@ -3,6 +3,8 @@ package com.springai.chatbot.controller;
 import com.springai.chatbot.dto.ChatRequest;
 import com.springai.chatbot.dto.ChatResponse;
 import com.springai.chatbot.service.ChatService;
+
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -16,13 +18,21 @@ public class ChatController {
     }
 
     @PostMapping
-    public ChatResponse chat(@RequestBody ChatRequest request) {
+    public ResponseEntity<ChatResponse> chat(
+            @RequestBody ChatRequest request
+    ) {
 
-        String response = chatService.chat(
-                request.getMessage(),
-                request.getHistory()
+        ChatService.ChatResult result =
+                chatService.chat(
+                        request.getMessage(),
+                        request.getConversationId()
+                );
+
+        ChatResponse response = new ChatResponse(
+                result.conversationId(),
+                result.response()
         );
 
-        return new ChatResponse(response);
+        return ResponseEntity.ok(response);
     }
 }
