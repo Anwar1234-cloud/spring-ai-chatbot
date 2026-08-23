@@ -68,7 +68,7 @@ public class ChatService {
         // 2. Load previous messages
         List<ChatMessage> previousMessages =
                 chatMessageRepository
-                        .findByConversation_IdOrderByIdAsc(conversation.getId());
+                        .findByConversation_IdOrderByCreatedAtAsc(conversation.getId());
 
         // 3. Convert database messages to Spring AI messages
         List<org.springframework.ai.chat.messages.Message> aiMessages =
