@@ -74,6 +74,7 @@ public class ConversationController {
     ) {
         return ConversationResponse.builder()
                 .id(conversation.getId())
+                .title(conversation.getTitle())
                 .createdAt(conversation.getCreatedAt())
                 .updatedAt(conversation.getUpdatedAt())
                 .build();

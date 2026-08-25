@@ -14,6 +14,8 @@ public class ConversationResponse {
 
     private UUID id;
 
+    private String title;
+
     private LocalDateTime createdAt;
 
     private LocalDateTime updatedAt;

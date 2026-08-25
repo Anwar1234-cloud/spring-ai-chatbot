@@ -40,8 +40,16 @@ public class ChatService {
 
         if (conversationId == null || conversationId.isBlank()) {
 
+            String title = message.trim();
+
+            if (title.length() > 50) {
+                title = title.substring(0, 50) + "...";
+            }
+
             conversation = conversationRepository.save(
-                    Conversation.builder().build()
+                    Conversation.builder()
+                            .title(title)
+                            .build()
             );
 
         } else {
@@ -64,6 +72,8 @@ public class ChatService {
                             )
                     );
         }
+
+        // REST OF YOUR EXISTING CODE...
 
         // 2. Load previous messages
         List<ChatMessage> previousMessages =
@@ -134,6 +144,21 @@ public class ChatService {
                 conversation.getId().toString(),
                 aiResponse
         );
+    }
+
+    private String createConversationTitle(String message) {
+
+        if (message == null || message.isBlank()) {
+            return "New Conversation";
+        }
+
+        String title = message.trim();
+
+        if (title.length() > 40) {
+            title = title.substring(0, 40) + "...";
+        }
+
+        return title;
     }
 
     public record ChatResult(

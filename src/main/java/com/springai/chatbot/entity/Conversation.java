@@ -20,6 +20,9 @@ public class Conversation {
     private UUID id;
 
     @Column(nullable = false)
+    private String title = "New Conversation";
+
+    @Column(nullable = false)
     private LocalDateTime createdAt;
 
     @Column(nullable = false)
@@ -31,6 +34,10 @@ public class Conversation {
 
         createdAt = now;
         updatedAt = now;
+
+        if (title == null || title.isBlank()) {
+            title = "New Conversation";
+        }
     }
 
     @PreUpdate
