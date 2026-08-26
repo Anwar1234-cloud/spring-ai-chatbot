@@ -90,4 +90,18 @@ public class ConversationController {
                 .createdAt(message.getCreatedAt())
                 .build();
     }
+
+    @DeleteMapping("/{conversationId}")
+    public ResponseEntity<Void> deleteConversation(
+            @PathVariable UUID conversationId
+    ) {
+
+        if (!conversationRepository.existsById(conversationId)) {
+            return ResponseEntity.notFound().build();
+        }
+
+        conversationRepository.deleteById(conversationId);
+
+        return ResponseEntity.noContent().build();
+    }
 }
