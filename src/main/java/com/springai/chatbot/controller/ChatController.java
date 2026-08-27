@@ -2,8 +2,10 @@ package com.springai.chatbot.controller;
 
 import com.springai.chatbot.dto.ChatRequest;
 import com.springai.chatbot.dto.ChatResponse;
+import com.springai.chatbot.dto.FeedbackRequest;
 import com.springai.chatbot.service.ChatService;
 
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -36,22 +38,24 @@ public class ChatController {
         return ResponseEntity.ok(response);
     }
     @PostMapping("/regenerate")
-    public ResponseEntity<ChatResponse> regenerate(
+    public ChatService.ChatResult regenerate(
             @RequestParam String conversationId,
             @RequestParam Long messageId
     ) {
 
-        ChatService.ChatResult result =
-                chatService.regenerate(
-                        conversationId,
-                        messageId
-                );
+        return chatService.regenerate(
+                conversationId,
+                messageId
+        );
+    }
+    @PostMapping("/feedback")
+    public void saveFeedback(
+            @Valid @RequestBody FeedbackRequest request
+    ) {
 
-        return ResponseEntity.ok(
-                new ChatResponse(
-                        result.conversationId(),
-                        result.response()
-                )
+        chatService.saveFeedback(
+                request.messageId(),
+                request.type()
         );
     }
 }
