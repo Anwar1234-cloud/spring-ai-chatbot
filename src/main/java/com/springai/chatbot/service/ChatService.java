@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 public class ChatService {
@@ -165,5 +166,96 @@ public class ChatService {
             String conversationId,
             String response
     ) {
+    }
+
+    @Transactional
+    public ChatResult regenerate(
+            String conversationId,
+            Long assistantMessageId
+    ) {
+
+        UUID id = UUID.fromString(conversationId);
+
+        Conversation conversation =
+                conversationRepository.findById(id)
+                        .orElseThrow(() ->
+                                new IllegalArgumentException(
+                                        "Conversation not found"
+                                )
+                        );
+
+        List<ChatMessage> history =
+                chatMessageRepository
+                        .findByConversation_IdOrderByCreatedAtAsc(id);
+
+        int assistantIndex = -1;
+
+        for (int i = 0; i < history.size(); i++) {
+
+            if (history.get(i).getId().equals(assistantMessageId)) {
+                assistantIndex = i;
+                break;
+            }
+        }
+
+        if (
+                assistantIndex <= 0 ||
+                        history.get(assistantIndex).getRole()
+                                != ChatMessage.Role.ASSISTANT
+        ) {
+            throw new IllegalArgumentException(
+                    "Assistant message not found."
+            );
+        }
+
+        ChatMessage userMessage = history.get(assistantIndex - 1);
+
+        /*
+         * Build conversation context
+         * excluding the assistant message
+         * being regenerated.
+         */
+        List<org.springframework.ai.chat.messages.Message> aiMessages =
+                history.subList(0, assistantIndex)
+                        .stream()
+                        .map(message -> {
+
+                            if (
+                                    message.getRole()
+                                            == ChatMessage.Role.USER
+                            ) {
+
+                                return new UserMessage(
+                                        message.getContent()
+                                );
+                            }
+
+                            return new AssistantMessage(
+                                    message.getContent()
+                            );
+
+                        })
+                        .collect(Collectors.toList());
+
+        String newResponse =
+                chatClient.prompt()
+                        .messages(aiMessages)
+                        .call()
+                        .content();
+
+        /*
+         * Replace old assistant response.
+         */
+        ChatMessage assistantMessage =
+                history.get(assistantIndex);
+
+        assistantMessage.setContent(newResponse);
+
+        chatMessageRepository.save(assistantMessage);
+
+        return new ChatResult(
+                conversation.getId().toString(),
+                newResponse
+        );
     }
 }

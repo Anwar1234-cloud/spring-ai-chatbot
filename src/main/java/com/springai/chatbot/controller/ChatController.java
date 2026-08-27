@@ -35,4 +35,23 @@ public class ChatController {
 
         return ResponseEntity.ok(response);
     }
+    @PostMapping("/regenerate")
+    public ResponseEntity<ChatResponse> regenerate(
+            @RequestParam String conversationId,
+            @RequestParam Long messageId
+    ) {
+
+        ChatService.ChatResult result =
+                chatService.regenerate(
+                        conversationId,
+                        messageId
+                );
+
+        return ResponseEntity.ok(
+                new ChatResponse(
+                        result.conversationId(),
+                        result.response()
+                )
+        );
+    }
 }
