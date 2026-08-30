@@ -5,6 +5,7 @@ import com.springai.chatbot.entity.ChatMessage;
 import com.springai.chatbot.entity.Conversation;
 import com.springai.chatbot.repository.ChatMessageRepository;
 import com.springai.chatbot.repository.ConversationRepository;
+import org.apache.pdfbox.Loader;
 
 import com.springai.chatbot.repository.FeedbackRepository;
 import com.springai.chatbot.entity.Feedback;
@@ -13,6 +14,7 @@ import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -26,17 +28,20 @@ public class ChatService {
     private final ChatMessageRepository chatMessageRepository;
 
     private final FeedbackRepository feedbackRepository;
+    private final PdfService pdfService;
 
     public ChatService(
             ChatClient.Builder chatClientBuilder,
             ConversationRepository conversationRepository,
             ChatMessageRepository chatMessageRepository,
-            FeedbackRepository feedbackRepository
+            FeedbackRepository feedbackRepository,
+            PdfService pdfService
     ) {
         this.chatClient = chatClientBuilder.build();
         this.conversationRepository = conversationRepository;
         this.chatMessageRepository = chatMessageRepository;
         this.feedbackRepository = feedbackRepository;
+        this.pdfService = pdfService;
     }
 
     @Transactional
@@ -360,5 +365,294 @@ public class ChatService {
         feedbackRepository.save(feedback);
 
         System.out.println("FEEDBACK SAVED");
+    }
+
+    @Transactional
+    public ChatResult chat(
+            String message,
+            String conversationId,
+            MultipartFile file
+    ) {
+
+        // ==========================================
+        // 1. FIND OR CREATE CONVERSATION
+        // ==========================================
+
+        Conversation conversation;
+
+        if (conversationId == null || conversationId.isBlank()) {
+
+            String title;
+
+            if (file != null && !file.isEmpty()) {
+                title = file.getOriginalFilename();
+            } else {
+                title = message.trim();
+            }
+
+            if (title == null || title.isBlank()) {
+                title = "New Conversation";
+            }
+
+            if (title.length() > 50) {
+                title = title.substring(0, 50) + "...";
+            }
+
+            conversation = conversationRepository.save(
+                    Conversation.builder()
+                            .title(title)
+                            .build()
+            );
+
+        } else {
+
+            UUID id;
+
+            try {
+                id = UUID.fromString(conversationId);
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException(
+                        "Invalid conversationId: " + conversationId
+                );
+            }
+
+            conversation = conversationRepository
+                    .findById(id)
+                    .orElseThrow(() ->
+                            new IllegalArgumentException(
+                                    "Conversation not found: "
+                                            + conversationId
+                            )
+                    );
+        }
+
+
+        // ==========================================
+        // 2. LOAD PREVIOUS MESSAGES
+        // ==========================================
+
+        List<ChatMessage> previousMessages =
+                chatMessageRepository
+                        .findByConversation_IdOrderByCreatedAtAsc(
+                                conversation.getId()
+                        );
+
+
+        // ==========================================
+        // 3. BUILD AI HISTORY
+        // ==========================================
+
+        List<org.springframework.ai.chat.messages.Message> aiMessages =
+                new ArrayList<>();
+
+        for (ChatMessage chatMessage : previousMessages) {
+
+            if (chatMessage.getRole() == ChatMessage.Role.USER) {
+
+                aiMessages.add(
+                        new UserMessage(
+                                chatMessage.getContent()
+                        )
+                );
+
+            } else {
+
+                aiMessages.add(
+                        new AssistantMessage(
+                                chatMessage.getContent()
+                        )
+                );
+            }
+        }
+
+
+        // ==========================================
+        // 4. PROCESS FILE
+        // ==========================================
+
+        String finalMessage = message;
+
+        if (file != null && !file.isEmpty()) {
+
+            String filename = file.getOriginalFilename();
+
+            if (filename == null) {
+                filename = "uploaded-file";
+            }
+
+            System.out.println(
+                    "FILE RECEIVED: " + filename
+            );
+
+            System.out.println(
+                    "FILE TYPE: " + file.getContentType()
+            );
+
+            System.out.println(
+                    "FILE SIZE: " + file.getSize()
+            );
+
+
+            // --------------------------------------
+            // PDF
+            // --------------------------------------
+
+            if ("application/pdf".equals(
+                    file.getContentType()
+            )) {
+
+                try {
+
+                    org.apache.pdfbox.pdmodel.PDDocument document =
+                            Loader.loadPDF(
+                                    file.getBytes()
+                            );
+
+                    org.apache.pdfbox.text.PDFTextStripper stripper =
+                            new org.apache.pdfbox.text.PDFTextStripper();
+
+                    String pdfText =
+                            stripper.getText(document);
+
+                    document.close();
+
+                    finalMessage =
+                            (message == null || message.isBlank()
+                                    ? "Analyze this PDF."
+                                    : message)
+                                    +
+                                    "\n\n"
+                                    +
+                                    "PDF FILE: "
+                                    + filename
+                                    +
+                                    "\n\n"
+                                    +
+                                    "PDF CONTENT:\n"
+                                    +
+                                    pdfText;
+
+                } catch (Exception e) {
+
+                    e.printStackTrace();
+
+                    throw new RuntimeException(
+                            "Unable to read PDF file."
+                    );
+                }
+            }
+
+
+            // --------------------------------------
+            // IMAGE
+            // --------------------------------------
+
+            else if (
+                    file.getContentType() != null &&
+                            file.getContentType().startsWith("image/")
+            ) {
+
+                /*
+                 * Image handling will be added after
+                 * switching Ollama to a vision model.
+                 */
+
+                finalMessage =
+                        (message == null || message.isBlank()
+                                ? "Analyze this image."
+                                : message)
+                                +
+                                "\n\nAttached image: "
+                                +
+                                filename;
+            }
+
+
+            // --------------------------------------
+            // UNSUPPORTED
+            // --------------------------------------
+
+            else {
+
+                throw new IllegalArgumentException(
+                        "Only PDF and image files are supported."
+                );
+            }
+        }
+
+
+        // ==========================================
+        // 5. CALL AI
+        // ==========================================
+
+        String aiResponse;
+
+        if (aiMessages.isEmpty()) {
+
+            aiResponse = chatClient
+                    .prompt()
+                    .user(finalMessage)
+                    .call()
+                    .content();
+
+        } else {
+
+            aiResponse = chatClient
+                    .prompt()
+                    .messages(aiMessages)
+                    .user(finalMessage)
+                    .call()
+                    .content();
+        }
+
+
+        // ==========================================
+        // 6. SAVE USER MESSAGE
+        // ==========================================
+
+        String savedUserContent = message;
+
+        if (savedUserContent == null ||
+                savedUserContent.isBlank()) {
+
+            savedUserContent =
+                    file != null
+                            ? "Uploaded: "
+                            + file.getOriginalFilename()
+                            : "";
+        }
+
+        ChatMessage userMessage =
+                ChatMessage.builder()
+                        .conversation(conversation)
+                        .role(ChatMessage.Role.USER)
+                        .content(savedUserContent)
+                        .build();
+
+        chatMessageRepository.save(userMessage);
+
+
+        // ==========================================
+        // 7. SAVE ASSISTANT MESSAGE
+        // ==========================================
+
+        ChatMessage assistantMessage =
+                ChatMessage.builder()
+                        .conversation(conversation)
+                        .role(ChatMessage.Role.ASSISTANT)
+                        .content(aiResponse)
+                        .build();
+
+        chatMessageRepository.save(assistantMessage);
+
+
+        // ==========================================
+        // 8. RETURN RESPONSE
+        // ==========================================
+
+        return new ChatResult(
+                conversation.getId().toString(),
+                aiResponse
+        );
     }
 }

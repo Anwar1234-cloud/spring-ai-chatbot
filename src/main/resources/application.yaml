@@ -19,3 +19,8 @@ spring:
       chat:
         options:
           model: llama3.2
+
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
