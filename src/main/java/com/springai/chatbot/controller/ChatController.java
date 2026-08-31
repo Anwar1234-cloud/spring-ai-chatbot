@@ -1,16 +1,19 @@
+
 package com.springai.chatbot.controller;
 
 import com.springai.chatbot.dto.ChatRequest;
 import com.springai.chatbot.dto.ChatResponse;
 import com.springai.chatbot.dto.FeedbackRequest;
 import com.springai.chatbot.service.ChatService;
-import reactor.core.publisher.Flux;
 
 import jakarta.validation.Valid;
+
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+
+import reactor.core.publisher.Flux;
 
 @RestController
 @RequestMapping("/api/chat")
@@ -22,9 +25,9 @@ public class ChatController {
         this.chatService = chatService;
     }
 
+
     // ============================================================
     // NORMAL TEXT CHAT
-    // Content-Type: application/json
     // ============================================================
 
     @PostMapping(
@@ -40,10 +43,12 @@ public class ChatController {
                         request.getConversationId()
                 );
 
-        ChatResponse response = new ChatResponse(
-                result.conversationId(),
-                result.response()
-        );
+        ChatResponse response =
+                new ChatResponse(
+                        result.conversationId(),
+                        result.response(),
+                        result.messageId()
+                );
 
         return ResponseEntity.ok(response);
     }
@@ -51,13 +56,13 @@ public class ChatController {
 
     // ============================================================
     // CHAT WITH PDF / IMAGE
-    // Content-Type: multipart/form-data
     // ============================================================
 
     @PostMapping(
             consumes = MediaType.MULTIPART_FORM_DATA_VALUE
     )
     public ResponseEntity<ChatResponse> chatWithFile(
+
             @RequestParam(
                     value = "message",
                     required = false,
@@ -85,10 +90,12 @@ public class ChatController {
                         file
                 );
 
-        ChatResponse response = new ChatResponse(
-                result.conversationId(),
-                result.response()
-        );
+        ChatResponse response =
+                new ChatResponse(
+                        result.conversationId(),
+                        result.response(),
+                        result.messageId()
+                );
 
         return ResponseEntity.ok(response);
     }
@@ -100,8 +107,11 @@ public class ChatController {
 
     @PostMapping("/regenerate")
     public ChatService.ChatResult regenerate(
+
             @RequestParam String conversationId,
+
             @RequestParam Long messageId
+
     ) {
 
         return chatService.regenerate(
@@ -126,14 +136,16 @@ public class ChatController {
         );
     }
 
-    // ============================================================
+
+
+// ============================================================
 // STREAMING CHAT
 // ============================================================
 
     @PostMapping(
             value = "/stream",
             consumes = MediaType.APPLICATION_JSON_VALUE,
-            produces = MediaType.TEXT_EVENT_STREAM_VALUE
+            produces = MediaType.TEXT_PLAIN_VALUE
     )
     public Flux<String> streamChat(
             @RequestBody ChatRequest request
@@ -145,15 +157,15 @@ public class ChatController {
         );
     }
 
-    // ============================================================
+
+// ============================================================
 // STREAMING CHAT WITH PDF / IMAGE
-// Content-Type: multipart/form-data
 // ============================================================
 
     @PostMapping(
             value = "/stream-file",
             consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
-            produces = MediaType.TEXT_EVENT_STREAM_VALUE
+            produces = MediaType.TEXT_PLAIN_VALUE
     )
     public Flux<String> streamFileChat(
 
@@ -186,3 +198,4 @@ public class ChatController {
 
 
 }
+

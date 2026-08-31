@@ -3,19 +3,21 @@ package com.springai.chatbot.service;
 import com.springai.chatbot.dto.FeedbackRequest;
 import com.springai.chatbot.entity.ChatMessage;
 import com.springai.chatbot.entity.Conversation;
+import com.springai.chatbot.entity.Feedback;
 import com.springai.chatbot.repository.ChatMessageRepository;
 import com.springai.chatbot.repository.ConversationRepository;
-import org.apache.pdfbox.Loader;
-import reactor.core.publisher.Flux;
-
 import com.springai.chatbot.repository.FeedbackRepository;
-import com.springai.chatbot.entity.Feedback;
+
+import org.apache.pdfbox.Loader;
+
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+
+import reactor.core.publisher.Flux;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -27,7 +29,6 @@ public class ChatService {
     private final ChatClient chatClient;
     private final ConversationRepository conversationRepository;
     private final ChatMessageRepository chatMessageRepository;
-
     private final FeedbackRepository feedbackRepository;
     private final PdfService pdfService;
 
@@ -45,146 +46,40 @@ public class ChatService {
         this.pdfService = pdfService;
     }
 
+
+    // ============================================================
+    // NORMAL TEXT CHAT
+    // ============================================================
+
     @Transactional
-    public ChatResult chat(String message, String conversationId) {
-
-        // 1. Find existing conversation or create a new one
-        Conversation conversation;
-
-        if (conversationId == null || conversationId.isBlank()) {
-
-            String title = message.trim();
-
-            if (title.length() > 50) {
-                title = title.substring(0, 50) + "...";
-            }
-
-            conversation = conversationRepository.save(
-                    Conversation.builder()
-                            .title(title)
-                            .build()
-            );
-
-        } else {
-
-            UUID id;
-
-            try {
-                id = UUID.fromString(conversationId);
-            } catch (IllegalArgumentException e) {
-                throw new IllegalArgumentException(
-                        "Invalid conversationId: " + conversationId
-                );
-            }
-
-            conversation = conversationRepository
-                    .findById(id)
-                    .orElseThrow(() ->
-                            new IllegalArgumentException(
-                                    "Conversation not found: " + conversationId
-                            )
-                    );
-        }
-
-        // REST OF YOUR EXISTING CODE...
-
-        // 2. Load previous messages
-        List<ChatMessage> previousMessages =
-                chatMessageRepository
-                        .findByConversation_IdOrderByCreatedAtAsc(conversation.getId());
-
-        // 3. Convert database messages to Spring AI messages
-        List<org.springframework.ai.chat.messages.Message> aiMessages =
-                new ArrayList<>();
-
-        for (ChatMessage chatMessage : previousMessages) {
-
-            if (chatMessage.getRole() == ChatMessage.Role.USER) {
-
-                aiMessages.add(
-                        new UserMessage(chatMessage.getContent())
-                );
-
-            } else {
-
-                aiMessages.add(
-                        new AssistantMessage(chatMessage.getContent())
-                );
-            }
-        }
-
-        // 4. Send conversation + new user message to AI
-        String aiResponse;
-
-        if (aiMessages.isEmpty()) {
-
-            aiResponse = chatClient
-                    .prompt()
-                    .user(message)
-                    .call()
-                    .content();
-
-        } else {
-
-            aiResponse = chatClient
-                    .prompt()
-                    .messages(aiMessages)
-                    .user(message)
-                    .call()
-                    .content();
-        }
-
-        // 5. Save user message
-        ChatMessage userMessage = ChatMessage.builder()
-                .conversation(conversation)
-                .role(ChatMessage.Role.USER)
-                .content(message)
-                .build();
-
-        chatMessageRepository.save(userMessage);
-
-        // 6. Save assistant message
-        ChatMessage assistantMessage = ChatMessage.builder()
-                .conversation(conversation)
-                .role(ChatMessage.Role.ASSISTANT)
-                .content(aiResponse)
-                .build();
-
-        chatMessageRepository.save(assistantMessage);
-
-        // 7. Return response
-        return new ChatResult(
-                conversation.getId().toString(),
-                aiResponse
-        );
-    }
-
-    public Flux<String> streamChat(
+    public ChatResult chat(
             String message,
             String conversationId
     ) {
 
         Conversation conversation;
 
-        // ==========================================
+        // --------------------------------------------------------
         // 1. FIND OR CREATE CONVERSATION
-        // ==========================================
+        // --------------------------------------------------------
 
         if (conversationId == null || conversationId.isBlank()) {
 
-            String title = message == null || message.isBlank()
-                    ? "New Conversation"
-                    : message.trim();
+            String title =
+                    message == null || message.isBlank()
+                            ? "New Conversation"
+                            : message.trim();
 
             if (title.length() > 50) {
                 title = title.substring(0, 50) + "...";
             }
 
-            conversation = conversationRepository.save(
-                    Conversation.builder()
-                            .title(title)
-                            .build()
-            );
+            conversation =
+                    conversationRepository.save(
+                            Conversation.builder()
+                                    .title(title)
+                                    .build()
+                    );
 
         } else {
 
@@ -198,19 +93,21 @@ public class ChatService {
                 );
             }
 
-            conversation = conversationRepository
-                    .findById(id)
-                    .orElseThrow(() ->
-                            new IllegalArgumentException(
-                                    "Conversation not found: "
-                                            + conversationId
-                            )
-                    );
+            conversation =
+                    conversationRepository
+                            .findById(id)
+                            .orElseThrow(() ->
+                                    new IllegalArgumentException(
+                                            "Conversation not found: "
+                                                    + conversationId
+                                    )
+                            );
         }
 
-        // ==========================================
+
+        // --------------------------------------------------------
         // 2. LOAD PREVIOUS MESSAGES
-        // ==========================================
+        // --------------------------------------------------------
 
         List<ChatMessage> previousMessages =
                 chatMessageRepository
@@ -218,12 +115,18 @@ public class ChatService {
                                 conversation.getId()
                         );
 
-        List<org.springframework.ai.chat.messages.Message> aiMessages =
-                new ArrayList<>();
+
+        // --------------------------------------------------------
+        // 3. BUILD AI HISTORY
+        // --------------------------------------------------------
+
+        List<org.springframework.ai.chat.messages.Message>
+                aiMessages = new ArrayList<>();
 
         for (ChatMessage chatMessage : previousMessages) {
 
-            if (chatMessage.getRole() == ChatMessage.Role.USER) {
+            if (chatMessage.getRole()
+                    == ChatMessage.Role.USER) {
 
                 aiMessages.add(
                         new UserMessage(
@@ -241,42 +144,217 @@ public class ChatService {
             }
         }
 
-        // ==========================================
-        // 3. STREAM AI RESPONSE
-        // ==========================================
+
+        // --------------------------------------------------------
+        // 4. CALL AI
+        // --------------------------------------------------------
+
+        String aiResponse;
+
+        if (aiMessages.isEmpty()) {
+
+            aiResponse =
+                    chatClient
+                            .prompt()
+                            .user(message)
+                            .call()
+                            .content();
+
+        } else {
+
+            aiResponse =
+                    chatClient
+                            .prompt()
+                            .messages(aiMessages)
+                            .user(message)
+                            .call()
+                            .content();
+        }
+
+
+        // --------------------------------------------------------
+        // 5. SAVE USER MESSAGE
+        // --------------------------------------------------------
+
+        ChatMessage userMessage =
+                ChatMessage.builder()
+                        .conversation(conversation)
+                        .role(ChatMessage.Role.USER)
+                        .content(message)
+                        .build();
+
+        chatMessageRepository.save(userMessage);
+
+
+        // --------------------------------------------------------
+        // 6. SAVE ASSISTANT MESSAGE
+        // --------------------------------------------------------
+
+        ChatMessage assistantMessage =
+                ChatMessage.builder()
+                        .conversation(conversation)
+                        .role(ChatMessage.Role.ASSISTANT)
+                        .content(aiResponse)
+                        .build();
+
+        assistantMessage =
+                chatMessageRepository.save(assistantMessage);
+
+
+        // --------------------------------------------------------
+        // 7. RETURN INCLUDING MESSAGE ID
+        // --------------------------------------------------------
+
+        return new ChatResult(
+                conversation.getId().toString(),
+                aiResponse,
+                assistantMessage.getId()
+        );
+    }
+
+
+    // ============================================================
+    // STREAMING TEXT CHAT
+    // ============================================================
+
+    public Flux<String> streamChat(
+            String message,
+            String conversationId
+    ) {
+
+        Conversation conversation;
+
+
+        // --------------------------------------------------------
+        // 1. FIND OR CREATE CONVERSATION
+        // --------------------------------------------------------
+
+        if (conversationId == null || conversationId.isBlank()) {
+
+            String title =
+                    message == null || message.isBlank()
+                            ? "New Conversation"
+                            : message.trim();
+
+            if (title.length() > 50) {
+                title = title.substring(0, 50) + "...";
+            }
+
+            conversation =
+                    conversationRepository.save(
+                            Conversation.builder()
+                                    .title(title)
+                                    .build()
+                    );
+
+        } else {
+
+            UUID id;
+
+            try {
+                id = UUID.fromString(conversationId);
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException(
+                        "Invalid conversationId: "
+                                + conversationId
+                );
+            }
+
+            conversation =
+                    conversationRepository
+                            .findById(id)
+                            .orElseThrow(() ->
+                                    new IllegalArgumentException(
+                                            "Conversation not found: "
+                                                    + conversationId
+                                    )
+                            );
+        }
+
+
+        // --------------------------------------------------------
+        // 2. LOAD PREVIOUS MESSAGES
+        // --------------------------------------------------------
+
+        List<ChatMessage> previousMessages =
+                chatMessageRepository
+                        .findByConversation_IdOrderByCreatedAtAsc(
+                                conversation.getId()
+                        );
+
+
+        // --------------------------------------------------------
+        // 3. BUILD AI HISTORY
+        // --------------------------------------------------------
+
+        List<org.springframework.ai.chat.messages.Message>
+                aiMessages = new ArrayList<>();
+
+        for (ChatMessage chatMessage :
+                previousMessages) {
+
+            if (chatMessage.getRole()
+                    == ChatMessage.Role.USER) {
+
+                aiMessages.add(
+                        new UserMessage(
+                                chatMessage.getContent()
+                        )
+                );
+
+            } else {
+
+                aiMessages.add(
+                        new AssistantMessage(
+                                chatMessage.getContent()
+                        )
+                );
+            }
+        }
+
+
+        // --------------------------------------------------------
+        // 4. STREAM RESPONSE
+        // --------------------------------------------------------
 
         Flux<String> responseFlux;
 
         if (aiMessages.isEmpty()) {
 
-            responseFlux = chatClient
-                    .prompt()
-                    .user(message)
-                    .stream()
-                    .content();
+            responseFlux =
+                    chatClient
+                            .prompt()
+                            .user(message)
+                            .stream()
+                            .content();
 
         } else {
 
-            responseFlux = chatClient
-                    .prompt()
-                    .messages(aiMessages)
-                    .user(message)
-                    .stream()
-                    .content();
+            responseFlux =
+                    chatClient
+                            .prompt()
+                            .messages(aiMessages)
+                            .user(message)
+                            .stream()
+                            .content();
         }
 
-        // ==========================================
-        // 4. COLLECT COMPLETE RESPONSE
-        // ==========================================
 
-        StringBuilder fullResponse = new StringBuilder();
+        // --------------------------------------------------------
+        // 5. COLLECT COMPLETE RESPONSE
+        // --------------------------------------------------------
+
+        StringBuilder fullResponse =
+                new StringBuilder();
 
         return responseFlux
+
                 .doOnNext(fullResponse::append)
 
                 .doOnComplete(() -> {
 
                     // Save USER message
+
                     ChatMessage userMessage =
                             ChatMessage.builder()
                                     .conversation(conversation)
@@ -286,21 +364,38 @@ public class ChatService {
 
                     chatMessageRepository.save(userMessage);
 
+
                     // Save ASSISTANT message
+
                     ChatMessage assistantMessage =
                             ChatMessage.builder()
                                     .conversation(conversation)
                                     .role(ChatMessage.Role.ASSISTANT)
-                                    .content(fullResponse.toString())
+                                    .content(
+                                            fullResponse.toString()
+                                    )
                                     .build();
 
-                    chatMessageRepository.save(assistantMessage);
+                    assistantMessage =
+                            chatMessageRepository.save(
+                                    assistantMessage
+                            );
 
                     System.out.println(
                             "STREAM RESPONSE SAVED"
                     );
+
+                    System.out.println(
+                            "ASSISTANT MESSAGE ID: "
+                                    + assistantMessage.getId()
+                    );
                 });
     }
+
+
+    // ============================================================
+    // STREAMING CHAT WITH FILE
+    // ============================================================
 
     public Flux<String> streamChat(
             String message,
@@ -310,9 +405,10 @@ public class ChatService {
 
         Conversation conversation;
 
-        // ==========================================
+
+        // --------------------------------------------------------
         // 1. FIND OR CREATE CONVERSATION
-        // ==========================================
+        // --------------------------------------------------------
 
         if (conversationId == null || conversationId.isBlank()) {
 
@@ -363,15 +459,17 @@ public class ChatService {
                             );
         }
 
-        // ==========================================
+
+        // --------------------------------------------------------
         // 2. LOAD PREVIOUS MESSAGES
-        // ==========================================
+        // --------------------------------------------------------
 
         List<ChatMessage> previousMessages =
                 chatMessageRepository
                         .findByConversation_IdOrderByCreatedAtAsc(
                                 conversation.getId()
                         );
+
 
         List<org.springframework.ai.chat.messages.Message>
                 aiMessages = new ArrayList<>();
@@ -398,9 +496,10 @@ public class ChatService {
             }
         }
 
-        // ==========================================
+
+        // --------------------------------------------------------
         // 3. PROCESS FILE
-        // ==========================================
+        // --------------------------------------------------------
 
         String finalMessage = message;
 
@@ -428,9 +527,10 @@ public class ChatService {
                             + file.getSize()
             );
 
-            // ======================================
+
+            // ----------------------------------------------------
             // PDF
-            // ======================================
+            // ----------------------------------------------------
 
             if ("application/pdf".equals(
                     file.getContentType()
@@ -477,12 +577,12 @@ public class ChatService {
                             "Unable to read PDF file."
                     );
                 }
-
             }
 
-            // ======================================
+
+            // ----------------------------------------------------
             // IMAGE
-            // ======================================
+            // ----------------------------------------------------
 
             else if (
                     file.getContentType() != null
@@ -504,9 +604,10 @@ public class ChatService {
                                 filename;
             }
 
-            // ======================================
+
+            // ----------------------------------------------------
             // UNSUPPORTED
-            // ======================================
+            // ----------------------------------------------------
 
             else {
 
@@ -516,9 +617,10 @@ public class ChatService {
             }
         }
 
-        // ==========================================
+
+        // --------------------------------------------------------
         // 4. STREAM AI RESPONSE
-        // ==========================================
+        // --------------------------------------------------------
 
         Flux<String> responseFlux;
 
@@ -542,9 +644,10 @@ public class ChatService {
                             .content();
         }
 
-        // ==========================================
-        // 5. COLLECT COMPLETE RESPONSE
-        // ==========================================
+
+        // --------------------------------------------------------
+        // 5. SAVE AFTER STREAM COMPLETES
+        // --------------------------------------------------------
 
         StringBuilder fullResponse =
                 new StringBuilder();
@@ -554,8 +657,6 @@ public class ChatService {
                 .doOnNext(fullResponse::append)
 
                 .doOnComplete(() -> {
-
-                    // Save USER message
 
                     String savedUserContent =
                             message;
@@ -570,43 +671,57 @@ public class ChatService {
                                         : "";
                     }
 
+
+                    // Save USER
+
                     ChatMessage userMessage =
                             ChatMessage.builder()
                                     .conversation(conversation)
                                     .role(ChatMessage.Role.USER)
-                                    .content(
-                                            savedUserContent
-                                    )
+                                    .content(savedUserContent)
                                     .build();
 
                     chatMessageRepository.save(
                             userMessage
                     );
 
-                    // Save ASSISTANT message
+
+                    // Save ASSISTANT
 
                     ChatMessage assistantMessage =
                             ChatMessage.builder()
                                     .conversation(conversation)
-                                    .role(
-                                            ChatMessage.Role.ASSISTANT
-                                    )
+                                    .role(ChatMessage.Role.ASSISTANT)
                                     .content(
                                             fullResponse.toString()
                                     )
                                     .build();
 
-                    chatMessageRepository.save(
-                            assistantMessage
-                    );
+                    assistantMessage =
+                            chatMessageRepository.save(
+                                    assistantMessage
+                            );
+
 
                     System.out.println(
                             "STREAM FILE RESPONSE SAVED"
                     );
+
+                    System.out.println(
+                            "ASSISTANT MESSAGE ID: "
+                                    + assistantMessage.getId()
+                    );
                 });
     }
 
-    private String createConversationTitle(String message) {
+
+    // ============================================================
+    // CREATE CONVERSATION TITLE
+    // ============================================================
+
+    private String createConversationTitle(
+            String message
+    ) {
 
         if (message == null || message.isBlank()) {
             return "New Conversation";
@@ -621,11 +736,22 @@ public class ChatService {
         return title;
     }
 
+
+    // ============================================================
+    // CHAT RESULT
+    // ============================================================
+
     public record ChatResult(
             String conversationId,
-            String response
+            String response,
+            Long messageId
     ) {
     }
+
+
+    // ============================================================
+    // REGENERATE RESPONSE
+    // ============================================================
 
     @Transactional
     public ChatResult regenerate(
@@ -633,27 +759,48 @@ public class ChatService {
             Long assistantMessageId
     ) {
 
+        // --------------------------------------------------------
+        // 1. VALIDATE CONVERSATION ID
+        // --------------------------------------------------------
+
         UUID conversationUUID;
 
         try {
-            conversationUUID = UUID.fromString(conversationId);
+
+            conversationUUID =
+                    UUID.fromString(conversationId);
+
         } catch (IllegalArgumentException e) {
+
             throw new IllegalArgumentException(
-                    "Invalid conversationId: " + conversationId
+                    "Invalid conversationId: "
+                            + conversationId
             );
         }
 
+
+        // --------------------------------------------------------
+        // 2. FIND CONVERSATION
+        // --------------------------------------------------------
+
         Conversation conversation =
-                conversationRepository.findById(conversationUUID)
+                conversationRepository
+                        .findById(conversationUUID)
                         .orElseThrow(() ->
                                 new IllegalArgumentException(
-                                        "Conversation not found: " + conversationId
+                                        "Conversation not found: "
+                                                + conversationId
                                 )
                         );
 
-        // Find the assistant message from PostgreSQL
+
+        // --------------------------------------------------------
+        // 3. FIND ASSISTANT MESSAGE
+        // --------------------------------------------------------
+
         ChatMessage assistantMessage =
-                chatMessageRepository.findById(assistantMessageId)
+                chatMessageRepository
+                        .findById(assistantMessageId)
                         .orElseThrow(() ->
                                 new IllegalArgumentException(
                                         "Assistant message not found: "
@@ -661,8 +808,13 @@ public class ChatService {
                                 )
                         );
 
-        // Make sure message belongs to this conversation
-        if (!assistantMessage.getConversation()
+
+        // --------------------------------------------------------
+        // 4. VERIFY MESSAGE BELONGS TO CONVERSATION
+        // --------------------------------------------------------
+
+        if (!assistantMessage
+                .getConversation()
                 .getId()
                 .equals(conversationUUID)) {
 
@@ -671,24 +823,40 @@ public class ChatService {
             );
         }
 
-        if (assistantMessage.getRole() != ChatMessage.Role.ASSISTANT) {
+
+        // --------------------------------------------------------
+        // 5. VERIFY ASSISTANT MESSAGE
+        // --------------------------------------------------------
+
+        if (assistantMessage.getRole()
+                != ChatMessage.Role.ASSISTANT) {
 
             throw new IllegalArgumentException(
                     "Only assistant messages can be regenerated"
             );
         }
 
-        // Load all messages
+
+        // --------------------------------------------------------
+        // 6. LOAD ALL MESSAGES
+        // --------------------------------------------------------
+
         List<ChatMessage> allMessages =
                 chatMessageRepository
                         .findByConversation_IdOrderByCreatedAtAsc(
                                 conversationUUID
                         );
 
-        // Find position of the assistant message
+
+        // --------------------------------------------------------
+        // 7. FIND ASSISTANT MESSAGE POSITION
+        // --------------------------------------------------------
+
         int assistantIndex = -1;
 
-        for (int i = 0; i < allMessages.size(); i++) {
+        for (int i = 0;
+             i < allMessages.size();
+             i++) {
 
             if (allMessages.get(i)
                     .getId()
@@ -699,6 +867,7 @@ public class ChatService {
             }
         }
 
+
         if (assistantIndex <= 0) {
 
             throw new IllegalArgumentException(
@@ -706,196 +875,42 @@ public class ChatService {
             );
         }
 
-        // Previous message must be USER
-        ChatMessage userMessage =
-                allMessages.get(assistantIndex - 1);
 
-        if (userMessage.getRole() != ChatMessage.Role.USER) {
+        // --------------------------------------------------------
+        // 8. GET PREVIOUS USER MESSAGE
+        // --------------------------------------------------------
+
+        ChatMessage userMessage =
+                allMessages.get(
+                        assistantIndex - 1
+                );
+
+
+        if (userMessage.getRole()
+                != ChatMessage.Role.USER) {
 
             throw new IllegalArgumentException(
                     "Assistant message has no previous user message"
             );
         }
 
-        /*
-         * Build AI history BEFORE the assistant response
-         */
-        List<org.springframework.ai.chat.messages.Message> aiMessages =
-                new ArrayList<>();
 
-        for (int i = 0; i < assistantIndex; i++) {
+        // --------------------------------------------------------
+        // 9. BUILD HISTORY BEFORE OLD ASSISTANT RESPONSE
+        // --------------------------------------------------------
 
-            ChatMessage chatMessage = allMessages.get(i);
+        List<org.springframework.ai.chat.messages.Message>
+                aiMessages = new ArrayList<>();
 
-            if (chatMessage.getRole() == ChatMessage.Role.USER) {
+        for (int i = 0;
+             i < assistantIndex;
+             i++) {
 
-                aiMessages.add(
-                        new UserMessage(chatMessage.getContent())
-                );
+            ChatMessage chatMessage =
+                    allMessages.get(i);
 
-            } else {
-
-                aiMessages.add(
-                        new AssistantMessage(chatMessage.getContent())
-                );
-            }
-        }
-
-        /*
-         * Remove old assistant response
-         */
-        chatMessageRepository.delete(assistantMessage);
-
-        /*
-         * Generate a new response using the SAME
-         * conversation history.
-         */
-        String newResponse =
-                chatClient
-                        .prompt()
-                        .messages(aiMessages)
-                        .call()
-                        .content();
-
-        /*
-         * Save new assistant response
-         */
-        ChatMessage newAssistantMessage =
-                ChatMessage.builder()
-                        .conversation(conversation)
-                        .role(ChatMessage.Role.ASSISTANT)
-                        .content(newResponse)
-                        .build();
-
-        chatMessageRepository.save(newAssistantMessage);
-
-        return new ChatResult(
-                conversation.getId().toString(),
-                newResponse
-        );
-    }
-    @Transactional
-    public void saveFeedback(
-            Long messageId,
-            FeedbackRequest.FeedbackType type
-    ) {
-
-        System.out.println("FEEDBACK MESSAGE ID: " + messageId);
-        System.out.println("FEEDBACK TYPE: " + type);
-
-        ChatMessage message =
-                chatMessageRepository.findById(messageId)
-                        .orElseThrow(() ->
-                                new IllegalArgumentException(
-                                        "Message not found: " + messageId
-                                )
-                        );
-
-        System.out.println("MESSAGE FOUND: " + message.getId());
-
-        Feedback feedback =
-                feedbackRepository
-                        .findByMessage_Id(messageId)
-                        .orElse(
-                                Feedback.builder()
-                                        .message(message)
-                                        .build()
-                        );
-
-        feedback.setType(
-                type == FeedbackRequest.FeedbackType.LIKE
-                        ? Feedback.FeedbackType.LIKE
-                        : Feedback.FeedbackType.DISLIKE
-        );
-
-        System.out.println("SAVING FEEDBACK: " + feedback.getType());
-
-        feedbackRepository.save(feedback);
-
-        System.out.println("FEEDBACK SAVED");
-    }
-
-    @Transactional
-    public ChatResult chat(
-            String message,
-            String conversationId,
-            MultipartFile file
-    ) {
-
-        // ==========================================
-        // 1. FIND OR CREATE CONVERSATION
-        // ==========================================
-
-        Conversation conversation;
-
-        if (conversationId == null || conversationId.isBlank()) {
-
-            String title;
-
-            if (file != null && !file.isEmpty()) {
-                title = file.getOriginalFilename();
-            } else {
-                title = message.trim();
-            }
-
-            if (title == null || title.isBlank()) {
-                title = "New Conversation";
-            }
-
-            if (title.length() > 50) {
-                title = title.substring(0, 50) + "...";
-            }
-
-            conversation = conversationRepository.save(
-                    Conversation.builder()
-                            .title(title)
-                            .build()
-            );
-
-        } else {
-
-            UUID id;
-
-            try {
-                id = UUID.fromString(conversationId);
-            } catch (IllegalArgumentException e) {
-                throw new IllegalArgumentException(
-                        "Invalid conversationId: " + conversationId
-                );
-            }
-
-            conversation = conversationRepository
-                    .findById(id)
-                    .orElseThrow(() ->
-                            new IllegalArgumentException(
-                                    "Conversation not found: "
-                                            + conversationId
-                            )
-                    );
-        }
-
-
-        // ==========================================
-        // 2. LOAD PREVIOUS MESSAGES
-        // ==========================================
-
-        List<ChatMessage> previousMessages =
-                chatMessageRepository
-                        .findByConversation_IdOrderByCreatedAtAsc(
-                                conversation.getId()
-                        );
-
-
-        // ==========================================
-        // 3. BUILD AI HISTORY
-        // ==========================================
-
-        List<org.springframework.ai.chat.messages.Message> aiMessages =
-                new ArrayList<>();
-
-        for (ChatMessage chatMessage : previousMessages) {
-
-            if (chatMessage.getRole() == ChatMessage.Role.USER) {
+            if (chatMessage.getRole()
+                    == ChatMessage.Role.USER) {
 
                 aiMessages.add(
                         new UserMessage(
@@ -914,36 +929,305 @@ public class ChatService {
         }
 
 
-        // ==========================================
+        // --------------------------------------------------------
+        // 10. DELETE OLD ASSISTANT RESPONSE
+        // --------------------------------------------------------
+
+        chatMessageRepository.delete(
+                assistantMessage
+        );
+
+
+        // --------------------------------------------------------
+        // 11. GENERATE NEW RESPONSE
+        // --------------------------------------------------------
+
+        String newResponse =
+                chatClient
+                        .prompt()
+                        .messages(aiMessages)
+                        .call()
+                        .content();
+
+
+        // --------------------------------------------------------
+        // 12. SAVE NEW ASSISTANT MESSAGE
+        // --------------------------------------------------------
+
+        ChatMessage newAssistantMessage =
+                ChatMessage.builder()
+                        .conversation(conversation)
+                        .role(ChatMessage.Role.ASSISTANT)
+                        .content(newResponse)
+                        .build();
+
+
+        newAssistantMessage =
+                chatMessageRepository.save(
+                        newAssistantMessage
+                );
+
+
+        System.out.println(
+                "REGENERATED MESSAGE SAVED"
+        );
+
+        System.out.println(
+                "NEW ASSISTANT MESSAGE ID: "
+                        + newAssistantMessage.getId()
+        );
+
+
+        // --------------------------------------------------------
+        // 13. RETURN NEW MESSAGE ID
+        // --------------------------------------------------------
+
+        return new ChatResult(
+                conversation.getId().toString(),
+                newResponse,
+                newAssistantMessage.getId()
+        );
+    }
+
+
+    // ============================================================
+    // FEEDBACK
+    // ============================================================
+
+    @Transactional
+    public void saveFeedback(
+            Long messageId,
+            FeedbackRequest.FeedbackType type
+    ) {
+
+        System.out.println(
+                "FEEDBACK MESSAGE ID: "
+                        + messageId
+        );
+
+        System.out.println(
+                "FEEDBACK TYPE: "
+                        + type
+        );
+
+
+        ChatMessage message =
+                chatMessageRepository
+                        .findById(messageId)
+                        .orElseThrow(() ->
+                                new IllegalArgumentException(
+                                        "Message not found: "
+                                                + messageId
+                                )
+                        );
+
+
+        System.out.println(
+                "MESSAGE FOUND: "
+                        + message.getId()
+        );
+
+
+        Feedback feedback =
+                feedbackRepository
+                        .findByMessage_Id(messageId)
+                        .orElse(
+                                Feedback.builder()
+                                        .message(message)
+                                        .build()
+                        );
+
+
+        feedback.setType(
+                type == FeedbackRequest.FeedbackType.LIKE
+                        ? Feedback.FeedbackType.LIKE
+                        : Feedback.FeedbackType.DISLIKE
+        );
+
+
+        System.out.println(
+                "SAVING FEEDBACK: "
+                        + feedback.getType()
+        );
+
+
+        feedbackRepository.save(
+                feedback
+        );
+
+
+        System.out.println(
+                "FEEDBACK SAVED"
+        );
+    }
+
+
+    // ============================================================
+    // NORMAL CHAT WITH PDF / IMAGE
+    // ============================================================
+
+    @Transactional
+    public ChatResult chat(
+            String message,
+            String conversationId,
+            MultipartFile file
+    ) {
+
+        Conversation conversation;
+
+
+        // --------------------------------------------------------
+        // 1. FIND OR CREATE CONVERSATION
+        // --------------------------------------------------------
+
+        if (conversationId == null || conversationId.isBlank()) {
+
+            String title;
+
+            if (file != null && !file.isEmpty()) {
+
+                title =
+                        file.getOriginalFilename();
+
+            } else {
+
+                title =
+                        message == null
+                                ? null
+                                : message.trim();
+            }
+
+
+            if (title == null || title.isBlank()) {
+                title = "New Conversation";
+            }
+
+
+            if (title.length() > 50) {
+                title =
+                        title.substring(0, 50)
+                                + "...";
+            }
+
+
+            conversation =
+                    conversationRepository.save(
+                            Conversation.builder()
+                                    .title(title)
+                                    .build()
+                    );
+
+        } else {
+
+            UUID id;
+
+            try {
+
+                id =
+                        UUID.fromString(
+                                conversationId
+                        );
+
+            } catch (IllegalArgumentException e) {
+
+                throw new IllegalArgumentException(
+                        "Invalid conversationId: "
+                                + conversationId
+                );
+            }
+
+
+            conversation =
+                    conversationRepository
+                            .findById(id)
+                            .orElseThrow(() ->
+                                    new IllegalArgumentException(
+                                            "Conversation not found: "
+                                                    + conversationId
+                                    )
+                            );
+        }
+
+
+        // --------------------------------------------------------
+        // 2. LOAD PREVIOUS MESSAGES
+        // --------------------------------------------------------
+
+        List<ChatMessage> previousMessages =
+                chatMessageRepository
+                        .findByConversation_IdOrderByCreatedAtAsc(
+                                conversation.getId()
+                        );
+
+
+        // --------------------------------------------------------
+        // 3. BUILD AI HISTORY
+        // --------------------------------------------------------
+
+        List<org.springframework.ai.chat.messages.Message>
+                aiMessages = new ArrayList<>();
+
+
+        for (ChatMessage chatMessage :
+                previousMessages) {
+
+            if (chatMessage.getRole()
+                    == ChatMessage.Role.USER) {
+
+                aiMessages.add(
+                        new UserMessage(
+                                chatMessage.getContent()
+                        )
+                );
+
+            } else {
+
+                aiMessages.add(
+                        new AssistantMessage(
+                                chatMessage.getContent()
+                        )
+                );
+            }
+        }
+
+
+        // --------------------------------------------------------
         // 4. PROCESS FILE
-        // ==========================================
+        // --------------------------------------------------------
 
         String finalMessage = message;
 
+
         if (file != null && !file.isEmpty()) {
 
-            String filename = file.getOriginalFilename();
+            String filename =
+                    file.getOriginalFilename();
+
 
             if (filename == null) {
                 filename = "uploaded-file";
             }
 
+
             System.out.println(
-                    "FILE RECEIVED: " + filename
+                    "FILE RECEIVED: "
+                            + filename
             );
 
             System.out.println(
-                    "FILE TYPE: " + file.getContentType()
+                    "FILE TYPE: "
+                            + file.getContentType()
             );
 
             System.out.println(
-                    "FILE SIZE: " + file.getSize()
+                    "FILE SIZE: "
+                            + file.getSize()
             );
 
 
-            // --------------------------------------
+            // ----------------------------------------------------
             // PDF
-            // --------------------------------------
+            // ----------------------------------------------------
 
             if ("application/pdf".equals(
                     file.getContentType()
@@ -951,34 +1235,43 @@ public class ChatService {
 
                 try {
 
-                    org.apache.pdfbox.pdmodel.PDDocument document =
+                    org.apache.pdfbox.pdmodel.PDDocument
+                            document =
                             Loader.loadPDF(
                                     file.getBytes()
                             );
 
-                    org.apache.pdfbox.text.PDFTextStripper stripper =
+
+                    org.apache.pdfbox.text.PDFTextStripper
+                            stripper =
                             new org.apache.pdfbox.text.PDFTextStripper();
 
+
                     String pdfText =
-                            stripper.getText(document);
+                            stripper.getText(
+                                    document
+                            );
+
 
                     document.close();
 
+
                     finalMessage =
-                            (message == null || message.isBlank()
-                                    ? "Analyze this PDF."
-                                    : message)
+                            (
+                                    message == null
+                                            || message.isBlank()
+                                            ? "Analyze this PDF."
+                                            : message
+                            )
                                     +
-                                    "\n\n"
+                                    "\n\nPDF FILE: "
                                     +
-                                    "PDF FILE: "
-                                    + filename
+                                    filename
                                     +
-                                    "\n\n"
-                                    +
-                                    "PDF CONTENT:\n"
+                                    "\n\nPDF CONTENT:\n"
                                     +
                                     pdfText;
+
 
                 } catch (Exception e) {
 
@@ -991,24 +1284,24 @@ public class ChatService {
             }
 
 
-            // --------------------------------------
+            // ----------------------------------------------------
             // IMAGE
-            // --------------------------------------
+            // ----------------------------------------------------
 
             else if (
-                    file.getContentType() != null &&
-                            file.getContentType().startsWith("image/")
+                    file.getContentType() != null
+                            &&
+                            file.getContentType()
+                                    .startsWith("image/")
             ) {
 
-                /*
-                 * Image handling will be added after
-                 * switching Ollama to a vision model.
-                 */
-
                 finalMessage =
-                        (message == null || message.isBlank()
-                                ? "Analyze this image."
-                                : message)
+                        (
+                                message == null
+                                        || message.isBlank()
+                                        ? "Analyze this image."
+                                        : message
+                        )
                                 +
                                 "\n\nAttached image: "
                                 +
@@ -1016,9 +1309,9 @@ public class ChatService {
             }
 
 
-            // --------------------------------------
+            // ----------------------------------------------------
             // UNSUPPORTED
-            // --------------------------------------
+            // ----------------------------------------------------
 
             else {
 
@@ -1029,39 +1322,44 @@ public class ChatService {
         }
 
 
-        // ==========================================
+        // --------------------------------------------------------
         // 5. CALL AI
-        // ==========================================
+        // --------------------------------------------------------
 
         String aiResponse;
 
+
         if (aiMessages.isEmpty()) {
 
-            aiResponse = chatClient
-                    .prompt()
-                    .user(finalMessage)
-                    .call()
-                    .content();
+            aiResponse =
+                    chatClient
+                            .prompt()
+                            .user(finalMessage)
+                            .call()
+                            .content();
 
         } else {
 
-            aiResponse = chatClient
-                    .prompt()
-                    .messages(aiMessages)
-                    .user(finalMessage)
-                    .call()
-                    .content();
+            aiResponse =
+                    chatClient
+                            .prompt()
+                            .messages(aiMessages)
+                            .user(finalMessage)
+                            .call()
+                            .content();
         }
 
 
-        // ==========================================
+        // --------------------------------------------------------
         // 6. SAVE USER MESSAGE
-        // ==========================================
+        // --------------------------------------------------------
 
-        String savedUserContent = message;
+        String savedUserContent =
+                message;
 
-        if (savedUserContent == null ||
-                savedUserContent.isBlank()) {
+
+        if (savedUserContent == null
+                || savedUserContent.isBlank()) {
 
             savedUserContent =
                     file != null
@@ -1070,6 +1368,7 @@ public class ChatService {
                             : "";
         }
 
+
         ChatMessage userMessage =
                 ChatMessage.builder()
                         .conversation(conversation)
@@ -1077,12 +1376,15 @@ public class ChatService {
                         .content(savedUserContent)
                         .build();
 
-        chatMessageRepository.save(userMessage);
+
+        chatMessageRepository.save(
+                userMessage
+        );
 
 
-        // ==========================================
+        // --------------------------------------------------------
         // 7. SAVE ASSISTANT MESSAGE
-        // ==========================================
+        // --------------------------------------------------------
 
         ChatMessage assistantMessage =
                 ChatMessage.builder()
@@ -1091,18 +1393,21 @@ public class ChatService {
                         .content(aiResponse)
                         .build();
 
-        chatMessageRepository.save(assistantMessage);
+
+        assistantMessage =
+                chatMessageRepository.save(
+                        assistantMessage
+                );
 
 
-        // ==========================================
-        // 8. RETURN RESPONSE
-        // ==========================================
+        // --------------------------------------------------------
+        // 8. RETURN MESSAGE ID
+        // --------------------------------------------------------
 
         return new ChatResult(
                 conversation.getId().toString(),
-                aiResponse
+                aiResponse,
+                assistantMessage.getId()
         );
     }
-
-
 }
