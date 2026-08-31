@@ -6,6 +6,7 @@ import com.springai.chatbot.entity.Conversation;
 import com.springai.chatbot.repository.ChatMessageRepository;
 import com.springai.chatbot.repository.ConversationRepository;
 import org.apache.pdfbox.Loader;
+import reactor.core.publisher.Flux;
 
 import com.springai.chatbot.repository.FeedbackRepository;
 import com.springai.chatbot.entity.Feedback;
@@ -156,6 +157,453 @@ public class ChatService {
                 conversation.getId().toString(),
                 aiResponse
         );
+    }
+
+    public Flux<String> streamChat(
+            String message,
+            String conversationId
+    ) {
+
+        Conversation conversation;
+
+        // ==========================================
+        // 1. FIND OR CREATE CONVERSATION
+        // ==========================================
+
+        if (conversationId == null || conversationId.isBlank()) {
+
+            String title = message == null || message.isBlank()
+                    ? "New Conversation"
+                    : message.trim();
+
+            if (title.length() > 50) {
+                title = title.substring(0, 50) + "...";
+            }
+
+            conversation = conversationRepository.save(
+                    Conversation.builder()
+                            .title(title)
+                            .build()
+            );
+
+        } else {
+
+            UUID id;
+
+            try {
+                id = UUID.fromString(conversationId);
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException(
+                        "Invalid conversationId: " + conversationId
+                );
+            }
+
+            conversation = conversationRepository
+                    .findById(id)
+                    .orElseThrow(() ->
+                            new IllegalArgumentException(
+                                    "Conversation not found: "
+                                            + conversationId
+                            )
+                    );
+        }
+
+        // ==========================================
+        // 2. LOAD PREVIOUS MESSAGES
+        // ==========================================
+
+        List<ChatMessage> previousMessages =
+                chatMessageRepository
+                        .findByConversation_IdOrderByCreatedAtAsc(
+                                conversation.getId()
+                        );
+
+        List<org.springframework.ai.chat.messages.Message> aiMessages =
+                new ArrayList<>();
+
+        for (ChatMessage chatMessage : previousMessages) {
+
+            if (chatMessage.getRole() == ChatMessage.Role.USER) {
+
+                aiMessages.add(
+                        new UserMessage(
+                                chatMessage.getContent()
+                        )
+                );
+
+            } else {
+
+                aiMessages.add(
+                        new AssistantMessage(
+                                chatMessage.getContent()
+                        )
+                );
+            }
+        }
+
+        // ==========================================
+        // 3. STREAM AI RESPONSE
+        // ==========================================
+
+        Flux<String> responseFlux;
+
+        if (aiMessages.isEmpty()) {
+
+            responseFlux = chatClient
+                    .prompt()
+                    .user(message)
+                    .stream()
+                    .content();
+
+        } else {
+
+            responseFlux = chatClient
+                    .prompt()
+                    .messages(aiMessages)
+                    .user(message)
+                    .stream()
+                    .content();
+        }
+
+        // ==========================================
+        // 4. COLLECT COMPLETE RESPONSE
+        // ==========================================
+
+        StringBuilder fullResponse = new StringBuilder();
+
+        return responseFlux
+                .doOnNext(fullResponse::append)
+
+                .doOnComplete(() -> {
+
+                    // Save USER message
+                    ChatMessage userMessage =
+                            ChatMessage.builder()
+                                    .conversation(conversation)
+                                    .role(ChatMessage.Role.USER)
+                                    .content(message)
+                                    .build();
+
+                    chatMessageRepository.save(userMessage);
+
+                    // Save ASSISTANT message
+                    ChatMessage assistantMessage =
+                            ChatMessage.builder()
+                                    .conversation(conversation)
+                                    .role(ChatMessage.Role.ASSISTANT)
+                                    .content(fullResponse.toString())
+                                    .build();
+
+                    chatMessageRepository.save(assistantMessage);
+
+                    System.out.println(
+                            "STREAM RESPONSE SAVED"
+                    );
+                });
+    }
+
+    public Flux<String> streamChat(
+            String message,
+            String conversationId,
+            MultipartFile file
+    ) {
+
+        Conversation conversation;
+
+        // ==========================================
+        // 1. FIND OR CREATE CONVERSATION
+        // ==========================================
+
+        if (conversationId == null || conversationId.isBlank()) {
+
+            String title;
+
+            if (file != null && !file.isEmpty()) {
+                title = file.getOriginalFilename();
+            } else {
+                title = message;
+            }
+
+            if (title == null || title.isBlank()) {
+                title = "New Conversation";
+            }
+
+            if (title.length() > 50) {
+                title = title.substring(0, 50) + "...";
+            }
+
+            conversation =
+                    conversationRepository.save(
+                            Conversation.builder()
+                                    .title(title)
+                                    .build()
+                    );
+
+        } else {
+
+            UUID id;
+
+            try {
+                id = UUID.fromString(conversationId);
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException(
+                        "Invalid conversationId: "
+                                + conversationId
+                );
+            }
+
+            conversation =
+                    conversationRepository
+                            .findById(id)
+                            .orElseThrow(() ->
+                                    new IllegalArgumentException(
+                                            "Conversation not found: "
+                                                    + conversationId
+                                    )
+                            );
+        }
+
+        // ==========================================
+        // 2. LOAD PREVIOUS MESSAGES
+        // ==========================================
+
+        List<ChatMessage> previousMessages =
+                chatMessageRepository
+                        .findByConversation_IdOrderByCreatedAtAsc(
+                                conversation.getId()
+                        );
+
+        List<org.springframework.ai.chat.messages.Message>
+                aiMessages = new ArrayList<>();
+
+        for (ChatMessage chatMessage :
+                previousMessages) {
+
+            if (chatMessage.getRole()
+                    == ChatMessage.Role.USER) {
+
+                aiMessages.add(
+                        new UserMessage(
+                                chatMessage.getContent()
+                        )
+                );
+
+            } else {
+
+                aiMessages.add(
+                        new AssistantMessage(
+                                chatMessage.getContent()
+                        )
+                );
+            }
+        }
+
+        // ==========================================
+        // 3. PROCESS FILE
+        // ==========================================
+
+        String finalMessage = message;
+
+        if (file != null && !file.isEmpty()) {
+
+            String filename =
+                    file.getOriginalFilename();
+
+            if (filename == null) {
+                filename = "uploaded-file";
+            }
+
+            System.out.println(
+                    "STREAM FILE RECEIVED: "
+                            + filename
+            );
+
+            System.out.println(
+                    "STREAM FILE TYPE: "
+                            + file.getContentType()
+            );
+
+            System.out.println(
+                    "STREAM FILE SIZE: "
+                            + file.getSize()
+            );
+
+            // ======================================
+            // PDF
+            // ======================================
+
+            if ("application/pdf".equals(
+                    file.getContentType()
+            )) {
+
+                try {
+
+                    org.apache.pdfbox.pdmodel.PDDocument
+                            document =
+                            Loader.loadPDF(
+                                    file.getBytes()
+                            );
+
+                    org.apache.pdfbox.text.PDFTextStripper
+                            stripper =
+                            new org.apache.pdfbox.text.PDFTextStripper();
+
+                    String pdfText =
+                            stripper.getText(document);
+
+                    document.close();
+
+                    finalMessage =
+                            (
+                                    message == null
+                                            || message.isBlank()
+                                            ? "Analyze this PDF."
+                                            : message
+                            )
+                                    +
+                                    "\n\nPDF FILE: "
+                                    +
+                                    filename
+                                    +
+                                    "\n\nPDF CONTENT:\n"
+                                    +
+                                    pdfText;
+
+                } catch (Exception e) {
+
+                    e.printStackTrace();
+
+                    throw new RuntimeException(
+                            "Unable to read PDF file."
+                    );
+                }
+
+            }
+
+            // ======================================
+            // IMAGE
+            // ======================================
+
+            else if (
+                    file.getContentType() != null
+                            &&
+                            file.getContentType()
+                                    .startsWith("image/")
+            ) {
+
+                finalMessage =
+                        (
+                                message == null
+                                        || message.isBlank()
+                                        ? "Analyze this image."
+                                        : message
+                        )
+                                +
+                                "\n\nAttached image: "
+                                +
+                                filename;
+            }
+
+            // ======================================
+            // UNSUPPORTED
+            // ======================================
+
+            else {
+
+                throw new IllegalArgumentException(
+                        "Only PDF and image files are supported."
+                );
+            }
+        }
+
+        // ==========================================
+        // 4. STREAM AI RESPONSE
+        // ==========================================
+
+        Flux<String> responseFlux;
+
+        if (aiMessages.isEmpty()) {
+
+            responseFlux =
+                    chatClient
+                            .prompt()
+                            .user(finalMessage)
+                            .stream()
+                            .content();
+
+        } else {
+
+            responseFlux =
+                    chatClient
+                            .prompt()
+                            .messages(aiMessages)
+                            .user(finalMessage)
+                            .stream()
+                            .content();
+        }
+
+        // ==========================================
+        // 5. COLLECT COMPLETE RESPONSE
+        // ==========================================
+
+        StringBuilder fullResponse =
+                new StringBuilder();
+
+        return responseFlux
+
+                .doOnNext(fullResponse::append)
+
+                .doOnComplete(() -> {
+
+                    // Save USER message
+
+                    String savedUserContent =
+                            message;
+
+                    if (savedUserContent == null
+                            || savedUserContent.isBlank()) {
+
+                        savedUserContent =
+                                file != null
+                                        ? "Uploaded: "
+                                        + file.getOriginalFilename()
+                                        : "";
+                    }
+
+                    ChatMessage userMessage =
+                            ChatMessage.builder()
+                                    .conversation(conversation)
+                                    .role(ChatMessage.Role.USER)
+                                    .content(
+                                            savedUserContent
+                                    )
+                                    .build();
+
+                    chatMessageRepository.save(
+                            userMessage
+                    );
+
+                    // Save ASSISTANT message
+
+                    ChatMessage assistantMessage =
+                            ChatMessage.builder()
+                                    .conversation(conversation)
+                                    .role(
+                                            ChatMessage.Role.ASSISTANT
+                                    )
+                                    .content(
+                                            fullResponse.toString()
+                                    )
+                                    .build();
+
+                    chatMessageRepository.save(
+                            assistantMessage
+                    );
+
+                    System.out.println(
+                            "STREAM FILE RESPONSE SAVED"
+                    );
+                });
     }
 
     private String createConversationTitle(String message) {
@@ -655,4 +1103,6 @@ public class ChatService {
                 aiResponse
         );
     }
+
+
 }

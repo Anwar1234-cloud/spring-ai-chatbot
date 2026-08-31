@@ -4,6 +4,7 @@ import com.springai.chatbot.dto.ChatRequest;
 import com.springai.chatbot.dto.ChatResponse;
 import com.springai.chatbot.dto.FeedbackRequest;
 import com.springai.chatbot.service.ChatService;
+import reactor.core.publisher.Flux;
 
 import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
@@ -124,4 +125,64 @@ public class ChatController {
                 request.type()
         );
     }
+
+    // ============================================================
+// STREAMING CHAT
+// ============================================================
+
+    @PostMapping(
+            value = "/stream",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.TEXT_EVENT_STREAM_VALUE
+    )
+    public Flux<String> streamChat(
+            @RequestBody ChatRequest request
+    ) {
+
+        return chatService.streamChat(
+                request.getMessage(),
+                request.getConversationId()
+        );
+    }
+
+    // ============================================================
+// STREAMING CHAT WITH PDF / IMAGE
+// Content-Type: multipart/form-data
+// ============================================================
+
+    @PostMapping(
+            value = "/stream-file",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
+            produces = MediaType.TEXT_EVENT_STREAM_VALUE
+    )
+    public Flux<String> streamFileChat(
+
+            @RequestParam(
+                    value = "message",
+                    required = false,
+                    defaultValue = ""
+            )
+            String message,
+
+            @RequestParam(
+                    value = "conversationId",
+                    required = false
+            )
+            String conversationId,
+
+            @RequestParam(
+                    value = "file",
+                    required = false
+            )
+            MultipartFile file
+    ) {
+
+        return chatService.streamChat(
+                message,
+                conversationId,
+                file
+        );
+    }
+
+
 }
